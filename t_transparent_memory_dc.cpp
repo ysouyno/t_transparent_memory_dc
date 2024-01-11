@@ -3,13 +3,188 @@
 
 #include "framework.h"
 #include "t_transparent_memory_dc.h"
+#include <atlconv.h>
+#include <gdiplus.h>
+
+#pragma comment(lib, "gdiplus.lib")
 
 #define MAX_LOADSTRING 100
+
+#define IMAGE_PATH L"test.emf"
+#define ORIG_W 100
+#define ORIG_H 100
+#define RADIO 1
+#define IMAGE_W (int)(ORIG_W * RADIO)
+#define IMAGE_H (int)(ORIG_H * RADIO)
 
 // Global Variables:
 HINSTANCE hInst;                                // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
+
+Gdiplus::GdiplusStartupInput g_gsi;
+ULONG_PTR g_token;
+
+// 本函数把一种指定的颜色变成透明色
+// hBitmap 要显示的位图
+// xStart，xStart 显示的位置
+// xadd，yadd 显示的位图的大小变化：放大缩小
+// cTransparentColor 变成透明的那种颜色
+void TransparentBitmap(HDC hdc, HBITMAP hBitmap, short xStart, short yStart, short xadd, short yadd, COLORREF cTransparentColor)
+{
+  HDC	hMem, hBack, hObject, hTemp, hSave;
+
+  hBack = CreateCompatibleDC(hdc);
+  hObject = CreateCompatibleDC(hdc);
+  hMem = CreateCompatibleDC(hdc);
+  hSave = CreateCompatibleDC(hdc);
+  hTemp = CreateCompatibleDC(hdc);
+
+  SelectObject(hTemp, hBitmap);
+
+  BITMAP m_bm;
+  GetObject(hBitmap, sizeof(BITMAP), (LPSTR)&m_bm);
+
+  POINT	ptSize;
+  ptSize.x = m_bm.bmWidth;
+  ptSize.y = m_bm.bmHeight;
+
+  // 转换为逻辑点值
+  DPtoLP(hTemp, &ptSize, 1);
+
+  // 创建临时位图
+  HBITMAP	bmBack, bmObject, bmMem, bmSave;
+
+  // 单色位图
+  bmBack = CreateBitmap(ptSize.x, ptSize.y, 1, 1, NULL);
+  bmObject = CreateBitmap(ptSize.x, ptSize.y, 1, 1, NULL);
+
+  // 与设备兼容位图
+  bmMem = CreateCompatibleBitmap(hdc, ptSize.x, ptSize.y);
+  bmSave = CreateCompatibleBitmap(hdc, ptSize.x, ptSize.y);
+
+  // 将创建的临时位图选入临时 DC 中
+
+  HBITMAP OldbmBack, OldbmObject, OldbmMem, OldbmSave;
+  OldbmBack = (HBITMAP)SelectObject(hBack, bmBack);
+  OldbmObject = (HBITMAP)SelectObject(hObject, bmObject);
+  OldbmMem = (HBITMAP)SelectObject(hMem, bmMem);
+  OldbmSave = (HBITMAP)SelectObject(hSave, bmSave);
+
+  // 设置映射模式
+  SetMapMode(hTemp, GetMapMode(hdc));
+
+  // 先保留原始位图
+  BitBlt(hSave, 0, 0, ptSize.x, ptSize.y, hTemp, 0, 0, SRCCOPY);
+
+  // 将背景颜色设置为需透明的颜色
+  COLORREF cColor = SetBkColor(hTemp, cTransparentColor);
+
+  // 创建目标屏蔽码
+  BitBlt(hObject, 0, 0, ptSize.x, ptSize.y, hTemp, 0, 0, SRCCOPY);
+
+  // 恢复源 DC 的原始背景色
+  SetBkColor(hTemp, cColor);
+
+  // 创建反转的目标屏蔽码
+  BitBlt(hBack, 0, 0, ptSize.x, ptSize.y, hObject, 0, 0, NOTSRCCOPY);
+
+  // 拷贝主 DC 的背景到目标 DC
+  BitBlt(hMem, 0, 0, ptSize.x, ptSize.y, hdc, xStart, yStart, SRCCOPY);
+
+  // 屏蔽位图的显示区
+  BitBlt(hMem, 0, 0, ptSize.x, ptSize.y, hObject, 0, 0, SRCAND);
+
+  // 屏蔽位图中的透明色
+  BitBlt(hTemp, 0, 0, ptSize.x, ptSize.y, hBack, 0, 0, SRCAND);
+
+  // 将位图与目标 DC 的背景左异或操作
+  BitBlt(hMem, 0, 0, ptSize.x, ptSize.y, hTemp, 0, 0, SRCPAINT);
+
+  // 拷贝目标到屏幕上
+  StretchBlt(hdc, xStart, yStart, ptSize.x + xadd, ptSize.y + yadd, hMem, 0, 0, ptSize.x, ptSize.y, SRCCOPY);
+
+  // 恢复原始位图
+  BitBlt(hTemp, 0, 0, ptSize.x, ptSize.y, hSave, 0, 0, SRCCOPY);
+
+  // 删除临时内存位图
+  DeleteObject(SelectObject(hBack, OldbmBack));
+  DeleteObject(SelectObject(hObject, OldbmObject));
+  DeleteObject(SelectObject(hMem, OldbmMem));
+  DeleteObject(SelectObject(hSave, OldbmSave));
+
+  // 删除临时内存 DC
+  DeleteDC(hMem);
+  DeleteDC(hBack);
+  DeleteDC(hObject);
+  DeleteDC(hSave);
+  DeleteDC(hTemp);
+}
+
+void t_gdi_paint_hbitmap(HDC hdc, HBITMAP hbitmap) {
+  HDC mem_dc = CreateCompatibleDC(hdc);
+  HGDIOBJ old = SelectObject(mem_dc, hbitmap);
+  if (!old)
+    MessageBox(0, L"SelectObject return NULL", 0, 0);
+
+  BITMAP bmpinfo;
+  GetObject(hbitmap, sizeof(bmpinfo), &bmpinfo);
+  BitBlt(hdc, 0, 0, bmpinfo.bmWidth, bmpinfo.bmHeight, mem_dc, 0, 0, SRCCOPY);
+}
+
+void t_gdiplus_paint_hbitmap(HDC hdc, HBITMAP hbitmap) {
+  BITMAP bmpinfo;
+  GetObject(hbitmap, sizeof(bmpinfo), &bmpinfo);
+  Gdiplus::Bitmap bitmap(hbitmap, NULL);
+  Gdiplus::Graphics g(hdc);
+  g.DrawImage(&bitmap, bitmap.GetWidth(), 0, bitmap.GetWidth(), bitmap.GetHeight());
+}
+
+void t_transparent_memory_dc(HDC hdc) {
+  HBITMAP mem_bmp = NULL;
+
+  BITMAPINFOHEADER bih = { 0 };
+  bih.biSize = sizeof(BITMAPINFOHEADER);
+  bih.biWidth = IMAGE_W;
+  bih.biHeight = -IMAGE_H;
+  bih.biPlanes = 1;
+  bih.biBitCount = 32;
+  bih.biCompression = BI_RGB;
+  bih.biSizeImage = 0;
+  bih.biXPelsPerMeter = 0;
+  bih.biYPelsPerMeter = 0;
+  bih.biClrUsed = 0;
+  bih.biClrImportant = 0;
+
+  BITMAPINFO bi = { 0 };
+  bi.bmiHeader = bih;
+
+  int len = IMAGE_W * IMAGE_H;
+  PBYTE pbits = new BYTE[len * 4];
+  memset(pbits, 0, len * 4);
+
+  HDC dc = CreateDC(L"DISPLAY", NULL, NULL, NULL);
+  mem_bmp = CreateDIBitmap(dc, &bih, CBM_INIT, pbits, &bi, DIB_RGB_COLORS);
+  DeleteDC(dc);
+
+  HDC mem_dc = CreateCompatibleDC(NULL);
+  SelectObject(mem_dc, mem_bmp);
+
+  RECT rc{ 0, 0, IMAGE_W, IMAGE_H };
+  HBRUSH hbrush = CreateSolidBrush(RGB(255, 255, 0));
+  FillRect(mem_dc, &rc, hbrush);
+
+  HENHMETAFILE hemf = GetEnhMetaFile(IMAGE_PATH);
+  if (hemf) {
+    PlayEnhMetaFile(mem_dc, hemf, &rc);
+    TextOut(mem_dc, 0, 0, L"GDI", 3);
+    BitBlt(hdc, 0, IMAGE_H, IMAGE_W, IMAGE_H, mem_dc, 0, 0, SRCCOPY);
+    DeleteEnhMetaFile(hemf);
+  }
+
+  t_gdi_paint_hbitmap(hdc, mem_bmp);
+  t_gdiplus_paint_hbitmap(hdc, mem_bmp);
+}
 
 // Forward declarations of functions included in this code module:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -26,6 +201,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
   UNREFERENCED_PARAMETER(lpCmdLine);
 
   // TODO: Place code here.
+  Gdiplus::GdiplusStartup(&g_token, &g_gsi, NULL);
 
   // Initialize global strings
   LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -52,10 +228,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     }
   }
 
+  Gdiplus::GdiplusShutdown(g_token);
   return (int)msg.wParam;
 }
-
-
 
 //
 //  FUNCTION: MyRegisterClass()
@@ -147,6 +322,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
     // TODO: Add any drawing code that uses hdc here...
+    t_transparent_memory_dc(hdc);
     EndPaint(hWnd, &ps);
   }
   break;
