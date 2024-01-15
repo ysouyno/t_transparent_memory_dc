@@ -25,100 +25,97 @@ WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 Gdiplus::GdiplusStartupInput g_gsi;
 ULONG_PTR g_token;
 
-// 本函数把一种指定的颜色变成透明色
-// hBitmap 要显示的位图
-// xStart，xStart 显示的位置
-// xadd，yadd 显示的位图的大小变化：放大缩小
-// cTransparentColor 变成透明的那种颜色
-void TransparentBitmap(HDC hdc, HBITMAP hBitmap, short xStart, short yStart, short xadd, short yadd, COLORREF cTransparentColor)
+void DrawTransparentBitmap(HDC hdc, HBITMAP hBitmap, short xStart, short yStart, COLORREF cTransparentColor)
 {
-  HDC	hMem, hBack, hObject, hTemp, hSave;
+  BITMAP bm;
+  COLORREF cColor;
+  HBITMAP bmAndBack, bmAndObject, bmAndMem, bmSave;
+  HBITMAP bmBackOld, bmObjectOld, bmMemOld, bmSaveOld;
+  HDC hdcMem, hdcBack, hdcObject, hdcTemp, hdcSave;
+  POINT ptSize;
 
-  hBack = CreateCompatibleDC(hdc);
-  hObject = CreateCompatibleDC(hdc);
-  hMem = CreateCompatibleDC(hdc);
-  hSave = CreateCompatibleDC(hdc);
-  hTemp = CreateCompatibleDC(hdc);
+  hdcTemp = CreateCompatibleDC(hdc);
+  SelectObject(hdcTemp, hBitmap); // Select the bitmap
 
-  SelectObject(hTemp, hBitmap);
+  GetObject(hBitmap, sizeof(BITMAP), (LPSTR)&bm);
+  ptSize.x = bm.bmWidth; // Get width of bitmap
+  ptSize.y = bm.bmHeight; // Get height of bitmap
+  DPtoLP(hdcTemp, &ptSize, 1); // Convert from device
 
-  BITMAP m_bm;
-  GetObject(hBitmap, sizeof(BITMAP), (LPSTR)&m_bm);
+  // Create some DCs to hold temporary data.
+  hdcBack = CreateCompatibleDC(hdc);
+  hdcObject = CreateCompatibleDC(hdc);
+  hdcMem = CreateCompatibleDC(hdc);
+  hdcSave = CreateCompatibleDC(hdc);
 
-  POINT	ptSize;
-  ptSize.x = m_bm.bmWidth;
-  ptSize.y = m_bm.bmHeight;
+  // Create a bitmap for each DC. DCs are required for a number of
+  // GDI functions.
 
-  // 转换为逻辑点值
-  DPtoLP(hTemp, &ptSize, 1);
+  // Monochrome DC
+  bmAndBack = CreateBitmap(ptSize.x, ptSize.y, 1, 1, NULL);
 
-  // 创建临时位图
-  HBITMAP	bmBack, bmObject, bmMem, bmSave;
+  // Monochrome DC
+  bmAndObject = CreateBitmap(ptSize.x, ptSize.y, 1, 1, NULL);
 
-  // 单色位图
-  bmBack = CreateBitmap(ptSize.x, ptSize.y, 1, 1, NULL);
-  bmObject = CreateBitmap(ptSize.x, ptSize.y, 1, 1, NULL);
-
-  // 与设备兼容位图
-  bmMem = CreateCompatibleBitmap(hdc, ptSize.x, ptSize.y);
+  bmAndMem = CreateCompatibleBitmap(hdc, ptSize.x, ptSize.y);
   bmSave = CreateCompatibleBitmap(hdc, ptSize.x, ptSize.y);
 
-  // 将创建的临时位图选入临时 DC 中
+  // Each DC must select a bitmap object to store pixel data.
+  bmBackOld = (HBITMAP)SelectObject(hdcBack, bmAndBack);
+  bmObjectOld = (HBITMAP)SelectObject(hdcObject, bmAndObject);
+  bmMemOld = (HBITMAP)SelectObject(hdcMem, bmAndMem);
+  bmSaveOld = (HBITMAP)SelectObject(hdcSave, bmSave);
 
-  HBITMAP OldbmBack, OldbmObject, OldbmMem, OldbmSave;
-  OldbmBack = (HBITMAP)SelectObject(hBack, bmBack);
-  OldbmObject = (HBITMAP)SelectObject(hObject, bmObject);
-  OldbmMem = (HBITMAP)SelectObject(hMem, bmMem);
-  OldbmSave = (HBITMAP)SelectObject(hSave, bmSave);
+  // Set proper mapping mode.
+  SetMapMode(hdcTemp, GetMapMode(hdc));
 
-  // 设置映射模式
-  SetMapMode(hTemp, GetMapMode(hdc));
+  // Save the bitmap sent here, because it will be overwritten.
+  BitBlt(hdcSave, 0, 0, ptSize.x, ptSize.y, hdcTemp, 0, 0, SRCCOPY);
 
-  // 先保留原始位图
-  BitBlt(hSave, 0, 0, ptSize.x, ptSize.y, hTemp, 0, 0, SRCCOPY);
+  // Set the background color of the source DC to the color.
+  // contained in the parts of the bitmap that should be transparent
+  cColor = SetBkColor(hdcTemp, cTransparentColor);
 
-  // 将背景颜色设置为需透明的颜色
-  COLORREF cColor = SetBkColor(hTemp, cTransparentColor);
+  // Create the object mask for the bitmap by performing a BitBlt
+  // from the source bitmap to a monochrome bitmap.
+  BitBlt(hdcObject, 0, 0, ptSize.x, ptSize.y, hdcTemp, 0, 0, SRCCOPY);
 
-  // 创建目标屏蔽码
-  BitBlt(hObject, 0, 0, ptSize.x, ptSize.y, hTemp, 0, 0, SRCCOPY);
+  // Set the background color of the source DC back to the original color.
+  SetBkColor(hdcTemp, cColor);
 
-  // 恢复源 DC 的原始背景色
-  SetBkColor(hTemp, cColor);
+  // Create the inverse of the object mask.
+  BitBlt(hdcBack, 0, 0, ptSize.x, ptSize.y, hdcObject, 0, 0, NOTSRCCOPY);
 
-  // 创建反转的目标屏蔽码
-  BitBlt(hBack, 0, 0, ptSize.x, ptSize.y, hObject, 0, 0, NOTSRCCOPY);
+  // Copy the background of the main DC to the destination.
+  BitBlt(hdcMem, 0, 0, ptSize.x, ptSize.y, hdc, xStart, yStart, SRCCOPY);
 
-  // 拷贝主 DC 的背景到目标 DC
-  BitBlt(hMem, 0, 0, ptSize.x, ptSize.y, hdc, xStart, yStart, SRCCOPY);
+  // Mask out the places where the bitmap will be placed.
+  BitBlt(hdcMem, 0, 0, ptSize.x, ptSize.y, hdcObject, 0, 0, SRCAND);
 
-  // 屏蔽位图的显示区
-  BitBlt(hMem, 0, 0, ptSize.x, ptSize.y, hObject, 0, 0, SRCAND);
+  // Mask out the transparent colored pixels on the bitmap.
+  BitBlt(hdcTemp, 0, 0, ptSize.x, ptSize.y, hdcBack, 0, 0, SRCAND);
 
-  // 屏蔽位图中的透明色
-  BitBlt(hTemp, 0, 0, ptSize.x, ptSize.y, hBack, 0, 0, SRCAND);
+  // XOR the bitmap with the background on the destination DC.
+  BitBlt(hdcMem, 0, 0, ptSize.x, ptSize.y, hdcTemp, 0, 0, SRCPAINT);
 
-  // 将位图与目标 DC 的背景左异或操作
-  BitBlt(hMem, 0, 0, ptSize.x, ptSize.y, hTemp, 0, 0, SRCPAINT);
+  // Copy the destination to the screen.
+  BitBlt(hdc, xStart, yStart, ptSize.x, ptSize.y, hdcMem, 0, 0, SRCCOPY);
 
-  // 拷贝目标到屏幕上
-  StretchBlt(hdc, xStart, yStart, ptSize.x + xadd, ptSize.y + yadd, hMem, 0, 0, ptSize.x, ptSize.y, SRCCOPY);
+  // Place the original bitmap back into the bitmap sent here.
+  BitBlt(hdcTemp, 0, 0, ptSize.x, ptSize.y, hdcSave, 0, 0, SRCCOPY);
 
-  // 恢复原始位图
-  BitBlt(hTemp, 0, 0, ptSize.x, ptSize.y, hSave, 0, 0, SRCCOPY);
+  // Delete the memory bitmaps.
+  DeleteObject(SelectObject(hdcBack, bmBackOld));
+  DeleteObject(SelectObject(hdcObject, bmObjectOld));
+  DeleteObject(SelectObject(hdcMem, bmMemOld));
+  DeleteObject(SelectObject(hdcSave, bmSaveOld));
 
-  // 删除临时内存位图
-  DeleteObject(SelectObject(hBack, OldbmBack));
-  DeleteObject(SelectObject(hObject, OldbmObject));
-  DeleteObject(SelectObject(hMem, OldbmMem));
-  DeleteObject(SelectObject(hSave, OldbmSave));
-
-  // 删除临时内存 DC
-  DeleteDC(hMem);
-  DeleteDC(hBack);
-  DeleteDC(hObject);
-  DeleteDC(hSave);
-  DeleteDC(hTemp);
+  // Delete the memory DCs.
+  DeleteDC(hdcMem);
+  DeleteDC(hdcBack);
+  DeleteDC(hdcObject);
+  DeleteDC(hdcSave);
+  DeleteDC(hdcTemp);
 }
 
 void t_gdi_paint_hbitmap(HDC hdc, HBITMAP hbitmap) {
@@ -184,8 +181,9 @@ void t_transparent_memory_dc(HDC hdc) {
 
   SelectObject(mem_dc, old_gdi);
 
-  t_gdi_paint_hbitmap(hdc, mem_bmp);
-  t_gdiplus_paint_hbitmap(hdc, mem_bmp);
+  // t_gdi_paint_hbitmap(hdc, mem_bmp);
+  // t_gdiplus_paint_hbitmap(hdc, mem_bmp);
+  DrawTransparentBitmap(hdc, mem_bmp, 0, 0, RGB(255, 255, 0));
 
   DeleteObject(mem_bmp);
   DeleteDC(mem_dc);
