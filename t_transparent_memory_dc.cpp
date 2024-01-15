@@ -168,7 +168,7 @@ void t_transparent_memory_dc(HDC hdc) {
   DeleteDC(dc);
 
   HDC mem_dc = CreateCompatibleDC(NULL);
-  SelectObject(mem_dc, mem_bmp);
+  HGDIOBJ old_gdi = SelectObject(mem_dc, mem_bmp);
 
   RECT rc{ 0, 0, IMAGE_W, IMAGE_H };
   HBRUSH hbrush = CreateSolidBrush(RGB(255, 255, 0));
@@ -182,8 +182,13 @@ void t_transparent_memory_dc(HDC hdc) {
     DeleteEnhMetaFile(hemf);
   }
 
+  SelectObject(mem_dc, old_gdi);
+
   t_gdi_paint_hbitmap(hdc, mem_bmp);
   t_gdiplus_paint_hbitmap(hdc, mem_bmp);
+
+  DeleteObject(mem_bmp);
+  DeleteDC(mem_dc);
 }
 
 // Forward declarations of functions included in this code module:
