@@ -5,14 +5,15 @@
 #include "t_transparent_memory_dc.h"
 #include <atlconv.h>
 #include <gdiplus.h>
+#include <vector>
 
 #pragma comment(lib, "gdiplus.lib")
 
 #define MAX_LOADSTRING 100
 
-#define IMAGE_PATH L"test.emf"
-#define ORIG_W 100
-#define ORIG_H 100
+#define IMAGE_PATH L"test.wmf"
+#define ORIG_W 175
+#define ORIG_H 188
 #define RADIO 1
 #define IMAGE_W (int)(ORIG_W * RADIO)
 #define IMAGE_H (int)(ORIG_H * RADIO)
@@ -24,6 +25,54 @@ WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 
 Gdiplus::GdiplusStartupInput g_gsi;
 ULONG_PTR g_token;
+
+#pragma pack(1)
+typedef struct tagWIN16RECT {
+  WORD left;
+  WORD top;
+  WORD right;
+  WORD bottom;
+} WIN16RECT;
+
+typedef struct tagPLACEABLEMETAHEADER {
+  DWORD key;
+  WORD hmf;
+  WIN16RECT bbox;
+  WORD inch;
+  DWORD reserved;
+  WORD checksum;
+} PLACEABLEMETAHEADER;
+#pragma pack()
+
+HENHMETAFILE WINAPI convert_wmf_to_emf(IN LPCWSTR meta_file) {
+  HANDLE hfile = CreateFileW(meta_file, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (!hfile || INVALID_HANDLE_VALUE == hfile) {
+    return NULL;
+  }
+
+  DWORD dwsize = GetFileSize(hfile, NULL);
+  std::vector<BYTE> data(dwsize);
+
+  DWORD dwread = -1;
+  BOOL bret = ReadFile(hfile, &data[0], dwsize, &dwread, NULL);
+  CloseHandle(hfile);
+
+  HENHMETAFILE hemf = NULL;
+
+  if (bret) {
+    PLACEABLEMETAHEADER* pmh = (PLACEABLEMETAHEADER*)&data[0];
+
+    int offset = -1;
+    if (pmh->key != 0x9AC6CDD7)
+      offset = 0;
+    else
+      offset = sizeof(PLACEABLEMETAHEADER);
+
+    hemf = SetWinMetaFileBits(data.size(), &data[offset], NULL, NULL);
+  }
+
+  return hemf;
+}
 
 void DrawTransparentBitmap(HDC hdc, HBITMAP hBitmap, short xStart, short yStart, COLORREF cTransparentColor)
 {
@@ -79,24 +128,30 @@ void DrawTransparentBitmap(HDC hdc, HBITMAP hBitmap, short xStart, short yStart,
   // Create the object mask for the bitmap by performing a BitBlt
   // from the source bitmap to a monochrome bitmap.
   BitBlt(hdcObject, 0, 0, ptSize.x, ptSize.y, hdcTemp, 0, 0, SRCCOPY);
+  BitBlt(hdc, ptSize.x * 1, ptSize.y * 1, ptSize.x, ptSize.y, hdcObject, 0, 0, SRCCOPY);
 
   // Set the background color of the source DC back to the original color.
   SetBkColor(hdcTemp, cColor);
 
   // Create the inverse of the object mask.
   BitBlt(hdcBack, 0, 0, ptSize.x, ptSize.y, hdcObject, 0, 0, NOTSRCCOPY);
+  BitBlt(hdc, ptSize.x * 2, ptSize.y * 1, ptSize.x, ptSize.y, hdcBack, 0, 0, SRCCOPY);
 
   // Copy the background of the main DC to the destination.
   BitBlt(hdcMem, 0, 0, ptSize.x, ptSize.y, hdc, xStart, yStart, SRCCOPY);
+  BitBlt(hdc, ptSize.x * 3, ptSize.y * 1, ptSize.x, ptSize.y, hdcMem, 0, 0, SRCCOPY);
 
   // Mask out the places where the bitmap will be placed.
   BitBlt(hdcMem, 0, 0, ptSize.x, ptSize.y, hdcObject, 0, 0, SRCAND);
+  BitBlt(hdc, ptSize.x * 4, ptSize.y * 1, ptSize.x, ptSize.y, hdcMem, 0, 0, SRCCOPY);
 
   // Mask out the transparent colored pixels on the bitmap.
   BitBlt(hdcTemp, 0, 0, ptSize.x, ptSize.y, hdcBack, 0, 0, SRCAND);
+  BitBlt(hdc, ptSize.x * 5, ptSize.y * 1, ptSize.x, ptSize.y, hdcTemp, 0, 0, SRCCOPY);
 
   // XOR the bitmap with the background on the destination DC.
   BitBlt(hdcMem, 0, 0, ptSize.x, ptSize.y, hdcTemp, 0, 0, SRCPAINT);
+  BitBlt(hdc, ptSize.x * 6, ptSize.y * 1, ptSize.x, ptSize.y, hdcMem, 0, 0, SRCCOPY);
 
   // Copy the destination to the screen.
   BitBlt(hdc, xStart, yStart, ptSize.x, ptSize.y, hdcMem, 0, 0, SRCCOPY);
@@ -168,14 +223,14 @@ void t_transparent_memory_dc(HDC hdc) {
   HGDIOBJ old_gdi = SelectObject(mem_dc, mem_bmp);
 
   RECT rc{ 0, 0, IMAGE_W, IMAGE_H };
-  HBRUSH hbrush = CreateSolidBrush(RGB(255, 255, 0));
+  HBRUSH hbrush = CreateSolidBrush(RGB(255, 255, 255));
   FillRect(mem_dc, &rc, hbrush);
 
-  HENHMETAFILE hemf = GetEnhMetaFile(IMAGE_PATH);
+  HENHMETAFILE hemf = convert_wmf_to_emf(IMAGE_PATH);
   if (hemf) {
+    PlayEnhMetaFile(hdc, hemf, &rc);
     PlayEnhMetaFile(mem_dc, hemf, &rc);
-    TextOut(mem_dc, 0, 0, L"GDI", 3);
-    BitBlt(hdc, 0, IMAGE_H, IMAGE_W, IMAGE_H, mem_dc, 0, 0, SRCCOPY);
+    // BitBlt(hdc, 0, 0, IMAGE_W, IMAGE_H, mem_dc, 0, 0, SRCCOPY);
     DeleteEnhMetaFile(hemf);
   }
 
@@ -183,10 +238,40 @@ void t_transparent_memory_dc(HDC hdc) {
 
   // t_gdi_paint_hbitmap(hdc, mem_bmp);
   // t_gdiplus_paint_hbitmap(hdc, mem_bmp);
-  DrawTransparentBitmap(hdc, mem_bmp, 0, 0, RGB(255, 255, 0));
+  DrawTransparentBitmap(hdc, mem_bmp, 0, IMAGE_H, RGB(255, 255, 255));
 
   DeleteObject(mem_bmp);
   DeleteDC(mem_dc);
+}
+
+void desc(HDC hdc) {
+  SetBkMode(hdc, TRANSPARENT);
+  char info[300] = { 0 };
+
+  SetTextColor(hdc, RGB(0, 0, 255));
+  strcpy_s(info, "1, PlayEnhMetaFile");
+  TextOutA(hdc, 0, 0, info, strlen(info));
+
+  strcpy_s(info, "2, DrawTransparentBitmap");
+  TextOutA(hdc, 0, IMAGE_H, info, strlen(info));
+
+  strcpy_s(info, "2.1, 目标掩码");
+  TextOutA(hdc, IMAGE_W * 1, IMAGE_H, info, strlen(info));
+
+  strcpy_s(info, "2.2, 目标掩码取反");
+  TextOutA(hdc, IMAGE_W * 2, IMAGE_H, info, strlen(info));
+
+  strcpy_s(info, "2.3, 背景");
+  TextOutA(hdc, IMAGE_W * 3, IMAGE_H, info, strlen(info));
+
+  strcpy_s(info, "2.4, 屏蔽位图所在位置");
+  TextOutA(hdc, IMAGE_W * 4, IMAGE_H, info, strlen(info));
+
+  strcpy_s(info, "2.5, 屏蔽位图彩色像素");
+  TextOutA(hdc, IMAGE_W * 5, IMAGE_H, info, strlen(info));
+
+  strcpy_s(info, "2.6, 最终效果，即最左侧图形");
+  TextOutA(hdc, IMAGE_W * 6, IMAGE_H, info, strlen(info));
 }
 
 // Forward declarations of functions included in this code module:
@@ -325,7 +410,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hWnd, &ps);
     // TODO: Add any drawing code that uses hdc here...
+    RECT rc;
+    GetClientRect(hWnd, &rc);
+    FillRect(hdc, &rc, (HBRUSH)GetStockObject(LTGRAY_BRUSH));
+
+    char bkstr[] = "ABCDEFGHIJKLMNOPQRS";
+    SetTextColor(hdc, RGB(255, 0, 0));
+    SetBkMode(hdc, TRANSPARENT);
+    TextOutA(hdc, 0, IMAGE_H * 3 / 2, bkstr, strlen(bkstr));
+
     t_transparent_memory_dc(hdc);
+    desc(hdc);
+
     EndPaint(hWnd, &ps);
   }
   break;
