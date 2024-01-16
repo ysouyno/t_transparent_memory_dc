@@ -68,7 +68,7 @@ HENHMETAFILE WINAPI convert_wmf_to_emf(IN LPCWSTR meta_file) {
     else
       offset = sizeof(PLACEABLEMETAHEADER);
 
-    hemf = SetWinMetaFileBits(data.size(), &data[offset], NULL, NULL);
+    hemf = SetWinMetaFileBits((UINT)data.size(), &data[offset], NULL, NULL);
   }
 
   return hemf;
@@ -250,28 +250,28 @@ void desc(HDC hdc) {
 
   SetTextColor(hdc, RGB(0, 0, 255));
   strcpy_s(info, "1, PlayEnhMetaFile");
-  TextOutA(hdc, 0, 0, info, strlen(info));
+  TextOutA(hdc, 0, 0, info, (int)strlen(info));
 
   strcpy_s(info, "2, DrawTransparentBitmap");
-  TextOutA(hdc, 0, IMAGE_H, info, strlen(info));
+  TextOutA(hdc, 0, IMAGE_H, info, (int)strlen(info));
 
   strcpy_s(info, "2.1, 目标掩码");
-  TextOutA(hdc, IMAGE_W * 1, IMAGE_H, info, strlen(info));
+  TextOutA(hdc, IMAGE_W * 1, IMAGE_H, info, (int)strlen(info));
 
   strcpy_s(info, "2.2, 目标掩码取反");
-  TextOutA(hdc, IMAGE_W * 2, IMAGE_H, info, strlen(info));
+  TextOutA(hdc, IMAGE_W * 2, IMAGE_H, info, (int)strlen(info));
 
   strcpy_s(info, "2.3, 背景");
-  TextOutA(hdc, IMAGE_W * 3, IMAGE_H, info, strlen(info));
+  TextOutA(hdc, IMAGE_W * 3, IMAGE_H, info, (int)strlen(info));
 
   strcpy_s(info, "2.4, 屏蔽位图所在位置");
-  TextOutA(hdc, IMAGE_W * 4, IMAGE_H, info, strlen(info));
+  TextOutA(hdc, IMAGE_W * 4, IMAGE_H, info, (int)strlen(info));
 
   strcpy_s(info, "2.5, 屏蔽位图彩色像素");
-  TextOutA(hdc, IMAGE_W * 5, IMAGE_H, info, strlen(info));
+  TextOutA(hdc, IMAGE_W * 5, IMAGE_H, info, (int)strlen(info));
 
   strcpy_s(info, "2.6, 最终效果，即最左侧图形");
-  TextOutA(hdc, IMAGE_W * 6, IMAGE_H, info, strlen(info));
+  TextOutA(hdc, IMAGE_W * 6, IMAGE_H, info, (int)strlen(info));
 }
 
 // Forward declarations of functions included in this code module:
@@ -417,7 +417,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     char bkstr[] = "ABCDEFGHIJKLMNOPQRS";
     SetTextColor(hdc, RGB(255, 0, 0));
     SetBkMode(hdc, TRANSPARENT);
-    TextOutA(hdc, 0, IMAGE_H * 3 / 2, bkstr, strlen(bkstr));
+    TextOutA(hdc, 0, IMAGE_H * 3 / 2, bkstr, (int)strlen(bkstr));
 
     t_transparent_memory_dc(hdc);
     desc(hdc);
